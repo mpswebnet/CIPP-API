@@ -1,9 +1,9 @@
 using namespace System.Net
 
-Function Invoke-ListScheduledItems {
+function Invoke-ListScheduledItems {
     <#
     .FUNCTIONALITY
-        Entrypoint
+        Entrypoint,AnyTenant
     .ROLE
         CIPP.Scheduler.Read
     #>
@@ -14,23 +14,29 @@ Function Invoke-ListScheduledItems {
     $Headers = $Request.Headers
     Write-LogMessage -headers $Headers -API $APIName -message 'Accessed this API' -Sev 'Debug'
 
-
-    # Interact with query parameters or the body of the request.
-    $ShowHidden = $Request.Query.ShowHidden ?? $Request.Body.ShowHidden
-    $Name = $Request.Query.Name ?? $Request.Body.Name
-    $Type = $Request.Query.Type ?? $Request.Body.Type
-
     $ScheduledItemFilter = [System.Collections.Generic.List[string]]::new()
     $ScheduledItemFilter.Add("PartitionKey eq 'ScheduledTask'")
 
-    if ($ShowHidden -eq $true) {
-        $ScheduledItemFilter.Add('Hidden eq true')
+    $Id = $Request.Query.Id ?? $Request.Body.Id
+    if ($Id) {
+        # Interact with query parameters.
+        $ScheduledItemFilter.Add("RowKey eq '$($Id)'")
     } else {
-        $ScheduledItemFilter.Add('Hidden eq false')
-    }
+        # Interact with query parameters or the body of the request.
+        $ShowHidden = $Request.Query.ShowHidden ?? $Request.Body.ShowHidden
+        $Name = $Request.Query.Name ?? $Request.Body.Name
+        $Type = $Request.Query.Type ?? $Request.Body.Type
 
-    if ($Name -eq $true) {
-        $ScheduledItemFilter.Add("Name eq '$($Name)'")
+        if ($ShowHidden -eq $true) {
+            $ScheduledItemFilter.Add('Hidden eq true')
+        } else {
+            $ScheduledItemFilter.Add('Hidden eq false')
+        }
+
+        if ($Name) {
+            $ScheduledItemFilter.Add("Name eq '$($Name)'")
+        }
+
     }
 
     $Filter = $ScheduledItemFilter -join ' and '
@@ -42,7 +48,7 @@ Function Invoke-ListScheduledItems {
     } else {
         $HiddenTasks = $true
     }
-    $Tasks = Get-CIPPAzDataTableEntity @Table -Filter $Filter | Where-Object { $_.Hidden -ne $HiddenTasks }
+    $Tasks = Get-CIPPAzDataTableEntity @Table -Filter $Filter
     if ($Type) {
         $Tasks = $Tasks | Where-Object { $_.command -eq $Type }
     }
@@ -63,6 +69,12 @@ Function Invoke-ListScheduledItems {
         if ($Task.Recurrence -eq 0 -or [string]::IsNullOrEmpty($Task.Recurrence)) {
             $Task.Recurrence = 'Once'
         }
+        try {
+            $Task.ExecutedTime = [DateTimeOffset]::FromUnixTimeSeconds($Task.ExecutedTime).UtcDateTime
+        } catch {}
+        try {
+            $Task.ScheduledTime = [DateTimeOffset]::FromUnixTimeSeconds($Task.ScheduledTime).UtcDateTime
+        } catch {}
         $Task
     }
 
